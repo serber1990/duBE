@@ -1,124 +1,96 @@
+# duBE — du But Easier
 
-# duBE (du But Easier)
+[![PyPI version](https://badge.fury.io/py/dube.svg)](https://badge.fury.io/py/dube)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/serber1990/duBE?style=social)](https://github.com/serber1990/duBE/stargazers)
 
-**duBE** is a Python command-line tool that provides an enhanced, user-friendly alternative to the `du` command, but easier. It offers additional options such as directory exclusion, depth limits, apparent size, tree format analysis, and more. Ideal for those seeking a flexible and detailed way to analyze disk usage on their systems.
+Enhanced disk usage analyser — a cleaner, more powerful `du` replacement with tree view, sorting, filters and readable output.
 
 ---
 
 ## ✨ Features
 
-- 🔢 **Disk Usage Analysis**: Provides the size of each file or folder within a directory.
-- 🎛 **Advanced Options**: Allows limiting search depth, excluding specific directories, showing modification times, and more just like du.
-- 🌲 **Tree Format**: Displays results in a tree structure for easy visualization and colorized.
-- 📏 **Apparent Size**: Option to show apparent size instead of actual disk usage.
+- 🌲 **Tree view** (`--tree`) — visual directory hierarchy with cumulative sizes per branch
+- 📊 **Sort by size** — `--sort asc` / `--sort desc`
+- 🕐 **Modification time** — `--time` shows last-modified date alongside each entry
+- 🚫 **Smart exclusions** — skip directories, zero-size entries, or entries below a threshold
+- 📏 **Apparent size** — actual file content vs. disk blocks
+- 🌈 **Clean, color-coded output** — readable at a glance without visual noise
 
 ---
 
 ## 📥 Installation
 
-1. Clone this repository to your local machine:
+```bash
+pip install dube
+```
 
-   ```bash
-   git clone https://github.com/serber1990/duBE.git
-   cd duBE
-   ```
+Or clone locally:
 
-2. Ensure Python and the `shellcolorize` library are installed.
-
-   ```bash
-   pip install shellcolorize
-   ```
+```bash
+git clone https://github.com/serber1990/duBE.git
+cd duBE
+pip install -e .
+```
 
 ---
 
 ## 🛠 Usage
 
-To run the script and analyze disk usage of a directory, use the following command:
-
 ```bash
-python3 duBE.py [options]
+dube [directory] [options]
 ```
 
-Basic usage example:
-
-```bash
-python3 duBE.py /path/to/directory
-```
+| Option | Description |
+|--------|-------------|
+| `directory` | Directory to analyse (default: `.`) |
+| `--tree` | Show results as a directory tree with cumulative sizes |
+| `--max-depth N` | Limit recursion depth |
+| `-a`, `--all` | Include individual files |
+| `--sort asc\|desc` | Sort by size |
+| `--time` | Show last modification time per entry |
+| `--time-style FMT` | Date format: `iso`, `long-iso`, `full-iso`, or strftime string |
+| `--apparent-size` | Show apparent size instead of disk blocks |
+| `--follow-symlinks` | Follow symbolic links |
+| `--same-filesystem` | Restrict to one filesystem |
+| `--exclude DIR` | Exclude a directory (repeatable) |
+| `-z`, `--exclude-zero` | Hide zero-size entries |
+| `--threshold N` | Show entries ≥ N blocks (negative = ≤ \|N\|) |
+| `-v`, `--version` | Show version |
 
 ---
 
-## 🔧 Available Options
-
-Here is a list of options you can use to customize the analysis:
-
-- `directory`: Directory to analyze (default: current directory).
-- `--max-depth <N>`: Maximum depth to search in subdirectories.
-- `-a`, `--all`: Include individual files in the output.
-- `--block-size <N>`: Block size for disk usage (default: 1024 bytes).
-- `--apparent-size`: Show apparent size instead of actual disk usage.
-- `--follow-symlinks`: Follow symbolic links.
-- `--exclude <DIR>`: Exclude specific directories or patterns.
-- `--same-filesystem`: Limit the analysis to a single filesystem.
-- `-z`, `--exclude-zero`: Exclude files and directories with 0.00 B size.
-- `--threshold <N>`: Exclude entries smaller/larger than threshold (positive/negative value).
-- `--time`: Show last modification time of each file/folder.
-- `--time-style <FORMAT>`: Date format for `--time` (default: iso).
-- `--sort <asc|desc>`: Sort by size in ascending or descending order.
-
----
-
-## 🎨 Usage Examples
-
-### Basic Analysis of the Current Directory
+## 🎨 Examples
 
 ```bash
-python3 duBE.py .
-```
+# Analyse current directory
+dube .
 
-### Analysis with Depth Limit
+# Tree view, 2 levels deep
+dube /home/user --tree --max-depth 2
 
-```bash
-python3 duBE.py /home/user --max-depth 2
-```
+# Largest directories first, show modification dates
+dube /var/log --sort desc --time
 
-### Exclude Specific Directories or Empty Files
+# Include individual files, skip empty entries
+dube /etc -a -z
 
-```bash
-python3 duBE.py /home/user --exclude /home/user/Downloads --exclude /home/user/tmp
-```
-
-```bash
-python3 duBE.py /home/user --exclude-zero (or -z)
-```
-
-### Show Apparent Size and Modification Dates
-
-```bash
-python3 duBE.py /home/user --apparent-size --time
-```
-
-### Tree Format Analysis
-
-```bash
-python3 duBE.py /home/user --max-depth 3 --all
+# Only show entries bigger than 100 blocks
+dube /home --threshold 100
 ```
 
 ---
 
 ## 📝 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
 
 ---
 
 ## 💬 Feedback
 
-If you have any questions, suggestions, or would like to contribute, feel free to open an issue or pull request.
+Open an issue or reach out via GitHub.
 
-## 🌐 Connect with Me
+## 🌐 Connect
 
 [![GitHub](https://img.shields.io/badge/GitHub-@serber1990-181717?style=flat-square&logo=github)](https://github.com/serber1990)
-
----
-
-### 🚀 Easily analyze disk usage with **duBE** (du But Easier)!

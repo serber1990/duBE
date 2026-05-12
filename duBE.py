@@ -1,154 +1,252 @@
 #!/usr/bin/env python3
-
 import argparse
 import os
-import sys
+import re
 import signal
+import sys
 from datetime import datetime
 from shellcolorize import Color
 
-EXCLUDE_DIRS = ['/proc', '/sys', '/dev', '/run', '/mnt', '/media', '/lost+found']
+VERSION = "2.0.0"
 
-def get_size(start_path='.', max_depth=None, follow_symlinks=False, same_filesystem=True, 
-             block_size=1024, threshold=None, show_all=False, apparent_size=False):
-    total_size = 0
-    base_dev = os.stat(start_path).st_dev if same_filesystem else None
-    depth = start_path.rstrip(os.path.sep).count(os.path.sep)
-    sizes = {}
+EXCLUDE_DIRS = {'/proc', '/sys', '/dev', '/run', '/mnt', '/media', '/lost+found'}
 
-    for dirpath, dirnames, filenames in os.walk(start_path, followlinks=follow_symlinks):
-        current_depth = dirpath.count(os.path.sep) - depth
-        if max_depth is not None and current_depth >= max_depth:
+# ── ANSI helpers ──────────────────────────────────────────────────────────────
+
+_ANSI = re.compile(r'\033\[[0-9;]*m')
+
+def _vlen(s: str) -> int:
+    return len(_ANSI.sub('', s))
+
+def _rpad(s: str, width: int) -> str:
+    return ' ' * max(0, width - _vlen(s)) + s
+
+# ── Display primitives ────────────────────────────────────────────────────────
+
+def _header(*parts: str) -> None:
+    inner = '  ' + '  ·  '.join(p for p in parts if p)
+    w = max(46, len(inner) + 4)
+    border = '═' * w
+    print()
+    print(f"  {Color.CYAN}╔{border}╗{Color.RESET}")
+    print(f"  {Color.CYAN}║{Color.RESET}{Color.BOLD}{inner}{Color.RESET}"
+          + ' ' * max(0, w - len(inner))
+          + f"  {Color.CYAN}║{Color.RESET}")
+    print(f"  {Color.CYAN}╚{border}╝{Color.RESET}")
+    print()
+
+def _separator(width: int = 52) -> None:
+    print(f"  {Color.DIM}{'─' * width}{Color.RESET}")
+
+# ── Size formatting ───────────────────────────────────────────────────────────
+
+def format_size(size: int, block_size: int = 1024) -> str:
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    value = size * block_size
+    for unit in units[:-1]:
+        if value < 1024:
+            return f"{value:7.2f} {unit}"
+        value /= 1024
+    return f"{value:7.2f} {units[-1]}"
+
+def _fmt_time(path: str, time_style: str = 'iso') -> str:
+    t = datetime.fromtimestamp(os.path.getmtime(path))
+    if time_style.startswith('+'):
+        return t.strftime(time_style[1:])
+    fmts = {'full-iso': '%Y-%m-%d %H:%M:%S', 'long-iso': '%Y-%m-%d %H:%M', 'iso': '%Y-%m-%d'}
+    return t.strftime(fmts.get(time_style, time_style))
+
+# ── Core scanner ──────────────────────────────────────────────────────────────
+
+def scan(start: str, max_depth=None, follow_symlinks=False, same_filesystem=False,
+         block_size=1024, threshold=None, show_all=False, apparent_size=False,
+         extra_excludes=None) -> tuple:
+    """
+    Returns (total_size, sizes_dict) where sizes_dict maps each path
+    to the sum of its DIRECT files only (used for flat view and tree rollup).
+    """
+    excludes = EXCLUDE_DIRS | set(extra_excludes or [])
+    base_dev = os.stat(start).st_dev if same_filesystem else None
+    depth0   = start.rstrip(os.sep).count(os.sep)
+    sizes    = {}
+    total    = 0
+
+    for dirpath, dirnames, filenames in os.walk(start, followlinks=follow_symlinks):
+        cur_depth = dirpath.count(os.sep) - depth0
+
+        if max_depth is not None and cur_depth >= max_depth:
             dirnames[:] = []
             continue
 
-        dirnames[:] = [d for d in dirnames if os.path.join(dirpath, d) not in EXCLUDE_DIRS]
-        if same_filesystem:
-            dirnames[:] = [d for d in dirnames if os.stat(os.path.join(dirpath, d)).st_dev == base_dev]
+        dirnames[:] = [
+            d for d in dirnames
+            if os.path.join(dirpath, d) not in excludes
+            and (base_dev is None or os.stat(os.path.join(dirpath, d)).st_dev == base_dev)
+        ]
 
         dir_size = 0
-        for file in filenames:
-            fp = os.path.join(dirpath, file)
+        for fname in filenames:
+            fp = os.path.join(dirpath, fname)
             try:
-                if not os.path.islink(fp) or follow_symlinks:
-                    if apparent_size:
-                        file_size = os.path.getsize(fp) // block_size
-                    else:
-                        file_size = (os.stat(fp).st_blocks * 512) // block_size
-
-                    if threshold is None or (threshold > 0 and file_size >= threshold) or (threshold < 0 and file_size <= threshold):
-                        dir_size += file_size
-                        if show_all:
-                            sizes[fp] = file_size
-            except (FileNotFoundError, OSError):
+                if os.path.islink(fp) and not follow_symlinks:
+                    continue
+                fsize = (os.path.getsize(fp) if apparent_size
+                         else (os.stat(fp).st_blocks * 512)) // block_size
+                if threshold is None or (threshold > 0 and fsize >= threshold) or \
+                   (threshold < 0 and fsize <= abs(threshold)):
+                    dir_size += fsize
+                    if show_all:
+                        sizes[fp] = fsize
+            except OSError:
                 continue
 
         sizes[dirpath] = dir_size
-        total_size += dir_size
+        total += dir_size
 
-    return total_size, sizes
+    return total, sizes
 
-def format_size(size, block_size=1024):
-    units = ["B", "KB", "MB", "GB", "TB"]
-    index = 0
-    size *= block_size
-    while size >= 1024 and index < len(units) - 1:
-        size /= 1024
-        index += 1
-    return f"{size:.2f} {units[index]}"
 
-def get_modified_time(path, time_format="iso"):
-    time = datetime.fromtimestamp(os.path.getmtime(path))
-    if time_format.startswith('+'):
-        return time.strftime(time_format[1:])
-    elif time_format == "full-iso":
-        return time.strftime('%Y-%m-%d %H:%M:%S.%f')
-    elif time_format == "long-iso":
-        return time.strftime('%Y-%m-%d %H:%M')
-    elif time_format == "iso":
-        return time.strftime('%Y-%m-%d')
-    else:
-        return time.strftime(time_format)
+def _cumulative(sizes: dict) -> dict:
+    """Roll up sizes so every directory contains total size of all descendants."""
+    cum = dict(sizes)
+    for path in sorted(cum.keys(), key=lambda p: -p.count(os.sep)):
+        parent = os.path.dirname(path)
+        if parent != path and parent in cum:
+            cum[parent] += cum[path]
+    return cum
 
-def print_tree(sizes, root_dir, block_size=1024):
-    def print_dir_tree(path, prefix=""):
-        size = sizes.get(path, 0)
-        print(f"{Color.BLUE}{format_size(size, block_size)}{Color.RESET} {prefix}{os.path.basename(path)}")
-        subdirs = [d for d in sizes if os.path.dirname(d) == path]
-        for i, subdir in enumerate(sorted(subdirs)):
-            if i == len(subdirs) - 1:
-                print_dir_tree(subdir, prefix + "    ")
-            else:
-                print_dir_tree(subdir, prefix + "│   ")
+# ── Output: flat list ─────────────────────────────────────────────────────────
 
-    print(f"{Color.MAGENTA}\n[*] Disk usage analysis in tree format for directory: {root_dir}\n{Color.RESET}")
-    print_dir_tree(root_dir)
+def print_flat(directory: str, total: int, sizes: dict, block_size: int,
+               show_time: bool, time_style: str, sort_order, exclude_zero: bool) -> None:
+    _header('duBE', os.path.abspath(directory))
 
-def analyze_disk_usage(directory='.', max_depth=None, follow_symlinks=False, same_filesystem=True, 
-                       block_size=1024, threshold=None, show_time=False, time_style="iso", 
-                       sort_order=None, show_all=False, exclude_zero=False, apparent_size=False):
-    total_size, folder_sizes = get_size(directory, max_depth, follow_symlinks, same_filesystem, 
-                                        block_size, threshold, show_all, apparent_size)
-    
-    if exclude_zero:
-        folder_sizes = {path: size for path, size in folder_sizes.items() if size > 0}
-    
-    sorted_sizes = sorted(folder_sizes.items(), key=lambda x: x[1], reverse=(sort_order == "desc"))
+    entries = {p: s for p, s in sizes.items() if not (exclude_zero and s == 0)}
+    reverse = sort_order == 'desc'
+    sorted_entries = sorted(entries.items(), key=lambda x: x[1], reverse=reverse)
 
-    print(f"{Color.MAGENTA}\n[*] Disk usage analysis for directory: {directory}\n{Color.RESET}")
-    for path, size in sorted_sizes:
-        formatted_size = format_size(size, block_size)
+    # Right-align size column
+    size_w = max((_vlen(format_size(s, block_size)) for _, s in sorted_entries), default=9)
+
+    for path, size in sorted_entries:
+        sz = _rpad(f"{Color.YELLOW}{format_size(size, block_size)}{Color.RESET}", size_w + 9)
+        line = f"  {sz}   {path}"
         if show_time:
-            mod_time = get_modified_time(path, time_style)
-            print(f"{Color.BLUE}{formatted_size}{Color.RESET} {path}  {Color.YELLOW}[Modified: {mod_time}]{Color.RESET}")
+            try:
+                ts = _fmt_time(path, time_style)
+                line += f"  {Color.DIM}{ts}{Color.RESET}"
+            except OSError:
+                pass
+        print(line)
+
+    _separator(size_w + 52)
+    total_str = f"{Color.YELLOW}{Color.BOLD}{format_size(total, block_size)}{Color.RESET}"
+    print(f"  {_rpad(total_str, size_w + 9)}   {Color.BOLD}Total{Color.RESET}")
+    print()
+
+# ── Output: tree ──────────────────────────────────────────────────────────────
+
+def print_tree(directory: str, sizes: dict, block_size: int) -> None:
+    _header('duBE', os.path.abspath(directory), 'tree')
+
+    cum = _cumulative(sizes)
+    dirs_only = {p: s for p, s in cum.items() if os.path.isdir(p)}
+
+    def _render(path: str, prefix: str = '', is_last: bool = True, root: bool = False) -> None:
+        size   = dirs_only.get(path, 0)
+        name   = os.path.basename(path) or path
+        sz_str = f"{Color.YELLOW}{format_size(size, block_size)}{Color.RESET}"
+
+        if root:
+            print(f"  {Color.CYAN}{Color.BOLD}{path}{Color.RESET}   {sz_str}")
+            child_prefix = ''
         else:
-            print(f"{Color.BLUE}{formatted_size}{Color.RESET} {path}")
+            conn = f"{Color.DIM}{'└── ' if is_last else '├── '}{Color.RESET}"
+            print(f"  {Color.DIM}{prefix}{Color.RESET}{conn}{sz_str}   {name}")
+            child_prefix = prefix + ('    ' if is_last else '│   ')
 
-    print(f"{Color.GREEN}\n[+] Total size: {format_size(total_size, block_size)}{Color.RESET}")
+        children = sorted(
+            [p for p in dirs_only if os.path.dirname(p) == path and p != path]
+        )
+        for i, child in enumerate(children):
+            _render(child, child_prefix, i == len(children) - 1, root=False)
 
-def handle_sigint(signum, frame):
-    print(f"\n{Color.RED}[!] Exiting now{Color.RESET}")
+    _render(directory, root=True)
+    print()
+
+# ── CLI ───────────────────────────────────────────────────────────────────────
+
+def _handle_sigint(signum, frame):
+    print(f"\n  {Color.RED}✖  Interrupted{Color.RESET}\n")
     sys.exit(1)
 
-def main():
-    signal.signal(signal.SIGINT, handle_sigint)
 
-    parser = argparse.ArgumentParser(description='Enhanced disk usage analyzer with additional features.')
-    parser.add_argument('directory', nargs='?', default='.', help='Directory to analyze (default: current directory)')
-    parser.add_argument('--max-depth', type=int, help='Maximum depth to recurse')
-    parser.add_argument('-a', '--all', action='store_true', help='Include individual files in output')
-    parser.add_argument('--block-size', type=int, default=1024, help='Block size for disk usage (default: 1024 bytes)')
-    parser.add_argument('--apparent-size', action='store_true', help='Show apparent size instead of disk usage')
-    parser.add_argument('--follow-symlinks', action='store_true', help='Follow symbolic links')
-    parser.add_argument('--exclude', action='append', help='Exclude specific directories or patterns')
-    parser.add_argument('--same-filesystem', action='store_true', help='Restrict to a single filesystem')
-    parser.add_argument('-z', '--exclude-zero', action='store_true', help='Exclude files and directories with 0.00 B size')
-    parser.add_argument('--threshold', type=int, help='Exclude entries smaller/larger than threshold (use positive/negative value)')
-    parser.add_argument('--time', action='store_true', help='Show last modification time of each directory')
-    parser.add_argument('--time-style', help='Date format for --time (default: iso)', default="iso")
-    parser.add_argument('--sort', choices=['asc', 'desc'], help='Sort by size in ascending or descending order')
+def main() -> None:
+    signal.signal(signal.SIGINT, _handle_sigint)
 
+    parser = argparse.ArgumentParser(
+        prog='dube',
+        description='duBE — du But Easier: enhanced disk usage analyser',
+    )
+    parser.add_argument('directory', nargs='?', default='.',
+                        help='Directory to analyse (default: current directory)')
+    parser.add_argument('--max-depth',      type=int,
+                        help='Maximum directory depth to recurse')
+    parser.add_argument('-a', '--all',      action='store_true',
+                        help='Include individual files in output')
+    parser.add_argument('--tree',           action='store_true',
+                        help='Display results as a directory tree')
+    parser.add_argument('--block-size',     type=int, default=1024,
+                        help='Block size in bytes (default: 1024)')
+    parser.add_argument('--apparent-size',  action='store_true',
+                        help='Show apparent size instead of disk usage')
+    parser.add_argument('--follow-symlinks',action='store_true',
+                        help='Follow symbolic links')
+    parser.add_argument('--same-filesystem',action='store_true',
+                        help='Restrict to a single filesystem')
+    parser.add_argument('--exclude',        action='append', metavar='DIR',
+                        help='Exclude a directory (repeatable)')
+    parser.add_argument('-z', '--exclude-zero', action='store_true',
+                        help='Hide entries with zero size')
+    parser.add_argument('--threshold',      type=int, metavar='N',
+                        help='Only show entries ≥ N blocks (negative = ≤ |N|)')
+    parser.add_argument('--time',           action='store_true',
+                        help='Show last modification time alongside each entry')
+    parser.add_argument('--time-style',     default='iso', metavar='FMT',
+                        help='Date format for --time: iso, long-iso, full-iso, or strftime string')
+    parser.add_argument('--sort',           choices=['asc', 'desc'],
+                        help='Sort output by size')
+    parser.add_argument('-v', '--version',  action='version', version=f'dube {VERSION}')
     args = parser.parse_args()
+
     directory = args.directory
+    if not os.path.isdir(directory):
+        print(f"\n  {Color.RED}✖  Not a directory: {directory}{Color.RESET}\n")
+        sys.exit(1)
 
-    if args.exclude:
-        EXCLUDE_DIRS.extend(args.exclude)
-
-    analyze_disk_usage(
+    total, sizes = scan(
         directory,
         max_depth=args.max_depth,
         follow_symlinks=args.follow_symlinks,
         same_filesystem=args.same_filesystem,
         block_size=args.block_size,
         threshold=args.threshold,
-        show_time=args.time,
-        time_style=args.time_style,
-        sort_order=args.sort,
         show_all=args.all,
-        exclude_zero=args.exclude_zero,
-        apparent_size=args.apparent_size
+        apparent_size=args.apparent_size,
+        extra_excludes=args.exclude,
     )
 
-if __name__ == "__main__":
-    main()
+    if args.tree:
+        print_tree(directory, sizes, args.block_size)
+    else:
+        print_flat(
+            directory, total, sizes, args.block_size,
+            show_time=args.time,
+            time_style=args.time_style,
+            sort_order=args.sort,
+            exclude_zero=args.exclude_zero,
+        )
 
+
+if __name__ == '__main__':
+    main()
