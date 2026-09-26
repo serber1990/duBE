@@ -8,6 +8,10 @@
 **Find what is eating your disk in one command.** duBE is a friendlier `du`: cumulative sizes,
 percentage bars, a tree view, top-N, human-friendly filters and JSON output — with the same totals as `du`.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/serber1990/duBE/main/docs/demo.gif" alt="dube demo: largest directories with percentage bars and tree view" width="820">
+</p>
+
 ---
 
 ## ✨ Features
