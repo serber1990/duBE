@@ -1,30 +1,50 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "dube"
-version = "2.0.0"
-description = "duBE — du But Easier: enhanced disk usage analyser with tree view, sort, filters and clean output"
+dynamic = ["version"]
+description = "duBE — du But Easier: disk usage analyser with percentage bars, tree view, top-N, filters and JSON"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Serber1990", email = "serber1990@pm.me" }]
-requires-python = ">=3.8"
-dependencies = ["shellcolorize"]
+requires-python = ">=3.9"
+dependencies = ["shellcolorize>=1.1.0"]
+keywords = ["du", "disk-usage", "ncdu", "filesystem", "cli", "sysadmin"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
     "Environment :: Console",
+    "Intended Audience :: System Administrators",
     "Topic :: System :: Filesystems",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4"]
 
 [project.urls]
 Homepage     = "https://github.com/serber1990/duBE"
 "Bug Tracker" = "https://github.com/serber1990/duBE/issues"
 "Source Code" = "https://github.com/serber1990/duBE"
+Changelog    = "https://github.com/serber1990/duBE/blob/main/CHANGELOG.md"
 
 [project.scripts]
-dube = "duBE:main"
+dube = "duBE:run"
 
 [tool.setuptools]
 py-modules = ["duBE"]
+
+[tool.setuptools.dynamic]
+version = { attr = "duBE.VERSION" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E9", "F", "B"]
