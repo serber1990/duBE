@@ -109,11 +109,14 @@ def scan(root: str, *, apparent_size: bool = False, follow_symlinks: bool = Fals
         path = stack.pop()
         try:
             with os.scandir(path) as it:
-                entries = list(it)
+                # Sorted so results are identical on every filesystem (e.g. which path of a
+                # hard-linked file is counted), whatever order the directory returns.
+                entries = sorted(it, key=lambda e: e.name)
         except OSError:
             result.errors.append(path)
             continue
 
+        subdirs = []
         for entry in entries:
             try:
                 if entry.is_symlink() and not follow_symlinks:
@@ -132,7 +135,7 @@ def scan(root: str, *, apparent_size: bool = False, follow_symlinks: bool = Fals
                     continue
                 seen_dirs.add(key)
                 direct[entry.path] = _entry_size(st, apparent_size)
-                stack.append(entry.path)
+                subdirs.append(entry.path)
             else:
                 if st.st_nlink > 1:
                     key = (st.st_dev, st.st_ino)
@@ -143,6 +146,8 @@ def scan(root: str, *, apparent_size: bool = False, follow_symlinks: bool = Fals
                 direct[path] += size
                 if include_files:
                     result.files[entry.path] = size
+
+        stack.extend(reversed(subdirs))   # depth-first, in alphabetical order
 
     # Roll sizes up: deepest directories first, each one added to its parent.
     cumulative = dict(direct)
